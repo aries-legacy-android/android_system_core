@@ -41,6 +41,7 @@
 #define SYSFS_PREFIX    "/sys"
 #define FIRMWARE_DIR1   "/etc/firmware"
 #define FIRMWARE_DIR2   "/vendor/firmware"
+#define FIRMWARE_DIR3   "/firmware/image"
 
 static int device_fd = -1;
 
@@ -500,7 +501,7 @@ out:
 
 static void process_firmware_event(struct uevent *uevent)
 {
-    char *root, *loading, *data, *file1 = NULL, *file2 = NULL;
+    char *root, *loading, *data, *file1 = NULL, *file2 = NULL, *file3 = NULL;
     int l, loading_fd, data_fd, fw_fd;
 
     log_event_print("firmware event { '%s', '%s' }\n",
@@ -526,6 +527,12 @@ static void process_firmware_event(struct uevent *uevent)
     if (l == -1)
         goto data_free_out;
 
+    /* aries: the modem partition is mounted at /firmware, with the PIL
+     * images under /firmware/image. */
+    l = asprintf(&file3, FIRMWARE_DIR3"/%s", uevent->firmware);
+    if (l == -1)
+        goto data_free_out;
+
     loading_fd = open(loading, O_WRONLY);
     if(loading_fd < 0)
         goto file_free_out;
@@ -537,8 +544,15 @@ static void process_firmware_event(struct uevent *uevent)
     fw_fd = open(file1, O_RDONLY);
     if(fw_fd < 0) {
         fw_fd = open(file2, O_RDONLY);
-        if(fw_fd < 0)
-            goto data_close_out;
+        if(fw_fd < 0) {
+            fw_fd = open(file3, O_RDONLY);
+            if(fw_fd < 0) {
+                /* Tell the kernel the load failed instead of leaving it
+                 * waiting for data. */
+                write(loading_fd, "-1", 2);
+                goto data_close_out;
+            }
+        }
     }
 
     if(!load_firmware(fw_fd, loading_fd, data_fd))
@@ -554,6 +568,7 @@ loading_close_out:
 file_free_out:
     free(file1);
     free(file2);
+    free(file3);
 data_free_out:
     free(data);
 loading_free_out:
