@@ -64,6 +64,7 @@ int usage(void)
             "       [ --cmdline <kernel-commandline> ]\n"
             "       [ --board <boardname> ]\n"
             "       [ --base <address> ]\n"
+            "       [ --ramdiskaddr <address> ]\n"
             "       [ --pagesize <pagesize> ]\n"
             "       -o|--output <filename>\n"
             );
@@ -105,6 +106,7 @@ int main(int argc, char **argv)
     char *cmdline = "";
     char *bootimg = 0;
     char *board = "";
+    char *ramdisk_addr_arg = 0;
     unsigned pagesize = 2048;
     int fd;
     SHA_CTX ctx;
@@ -145,6 +147,10 @@ int main(int argc, char **argv)
             hdr.ramdisk_addr = base + 0x01000000;
             hdr.second_addr =  base + 0x00F00000;
             hdr.tags_addr =    base + 0x00000100;
+        } else if(!strcmp(arg, "--ramdiskaddr")) {
+            /* Applied after the argument loop, so the order of --base and
+             * --ramdiskaddr on the command line does not matter. */
+            ramdisk_addr_arg = val;
         } else if(!strcmp(arg, "--board")) {
             board = val;
         } else if(!strcmp(arg,"--pagesize")) {
@@ -157,6 +163,22 @@ int main(int argc, char **argv)
             return usage();
         }
     }
+
+    /* Mi2/aries needs ramdisk_addr = base + 0x02000000 (0x82200000).  With the
+     * default base + 0x01000000 (0x81200000) the device fails to boot and the
+     * bootloader reports error 9006.  Validate the value instead of trusting
+     * that it was passed correctly. */
+    if(ramdisk_addr_arg) {
+        char *endp;
+        unsigned long addr = strtoul(ramdisk_addr_arg, &endp, 16);
+        if(*endp || addr == 0 || (unsigned long)(unsigned)addr != addr) {
+            fprintf(stderr, "error: bad ramdisk address '%s'\n",
+                    ramdisk_addr_arg);
+            return 1;
+        }
+        hdr.ramdisk_addr = addr;
+    }
+
     hdr.page_size = pagesize;
 
 
