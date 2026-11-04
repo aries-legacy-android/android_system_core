@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <unistd.h>
 #include <private/android_filesystem_config.h>
 
 #include "ueventd.h"
@@ -30,6 +31,34 @@
 
 static char hardware[32];
 static unsigned revision = 0;
+
+/* aries: no rc file has been read yet, so take the hardware name from
+ * androidboot.hardware; cpuinfo gives "mi" and /ueventd.qcom.rc is skipped. */
+static void import_android_hardware(void)
+{
+    char cmdline[1024];
+    char *tok;
+    int fd, n, i;
+
+    fd = open("/proc/cmdline", O_RDONLY);
+    if (fd < 0)
+        return;
+
+    n = read(fd, cmdline, sizeof(cmdline) - 1);
+    close(fd);
+    if (n <= 0)
+        return;
+    cmdline[n] = '\0';
+
+    for (tok = strtok(cmdline, " \t\n"); tok; tok = strtok(NULL, " \t\n")) {
+        if (strncmp(tok, "androidboot.hardware=", 21))
+            continue;
+        for (i = 0; tok[21 + i] && i < (int)sizeof(hardware) - 1; i++)
+            hardware[i] = tolower((unsigned char)tok[21 + i]);
+        hardware[i] = '\0';
+        return;
+    }
+}
 
 int ueventd_main(int argc, char **argv)
 {
@@ -42,6 +71,7 @@ int ueventd_main(int argc, char **argv)
 
     INFO("starting ueventd\n");
 
+    import_android_hardware();
     get_hardware_name(hardware, &revision);
 
     ueventd_parse_config_file("/ueventd.rc");
